@@ -41,85 +41,92 @@ impl Screen {
         }
     }
 
+    fn point_slope(x: usize, slope: f32, position1: (usize, usize)) -> usize {
+        let y = slope * (x - position1.0) as f32 + position1.1 as f32;
+        let y = y as usize;
+        return y;
+    }
     pub fn draw_line(
         &mut self,
         mut position1: (usize, usize),
         mut position2: (usize, usize),
         pixel: char,
     ) {
-        let pos1 = (position1.0 as f32, position1.1 as f32);
-        let pos2 = (position2.0 as f32, position2.1 as f32);
-        let mut slope = (pos2.1 - pos1.1) / (pos2.0 - pos1.0);
-        let mut swapped = false;
-
+        let mut steep = false;
+    
+        if (position2.1 as isize - position1.1 as isize).abs() > (position2.0 as isize - position1.0 as isize).abs() {
+            std::mem::swap(&mut position1.0, &mut position1.1);
+            std::mem::swap(&mut position2.0, &mut position2.1);
+            steep = true;
+        }
+    
         if position1.0 > position2.0 {
             std::mem::swap(&mut position1, &mut position2);
         }
-
-        if slope.abs() > 1.0 {
-            std::mem::swap(&mut position1.0, &mut position1.1);
-            std::mem::swap(&mut position2.0, &mut position2.1);
-            swapped = true;
-            slope = 1.0 / slope;
-        }
-
-        fn point_slope(x: usize, slope: f32, position1: (usize, usize)) -> usize {
-            let y = slope * (x - position1.0) as f32 + position1.1 as f32;
-            let y = y as usize;
-            return y;
-        }
-
-        for mut x in position1.0..position2.0 + 1 {
-            let mut y = point_slope(x, slope, position1);
-            if swapped {
-                std::mem::swap(&mut x, &mut y);
+    
+        let pos1 = (position1.0 as f32, position1.1 as f32);
+        let pos2 = (position2.0 as f32, position2.1 as f32);
+    
+        let slope = if pos2.0 - pos1.0 != 0.0 {
+            (pos2.1 - pos1.1) / (pos2.0 - pos1.0)
+        } else {
+            1.0
+        };
+    
+        for x in position1.0..=position2.0 {
+            let y = Self::point_slope(x, slope, position1);
+            if steep {
+                self.draw_pixel((y, x), pixel);
+            } else {
+                self.draw_pixel((x, y), pixel);
             }
-            self.draw_pixel((x, y), pixel);
         }
     }
-    pub fn draw_shape(&mut self, pixel: char) {
-        fn project(fov: f32, z: f32, pos: f32) -> f32 {
-            let screen_z = (fov * 0.5).to_radians().tan(); //technically the reciprocal
-            let in_2d = pos / (z * screen_z);
-            return in_2d;
-        }
 
+    fn project(fov: f32, z: f32, pos: f32) -> f32 {
+        let screen_z = (fov * 0.5).to_radians().tan(); //technically the reciprocal
+        let in_2d = pos / (z * screen_z);
+        return in_2d;
+    }
+
+    pub fn draw_shape(&mut self, pixel: char) {
         let mut projected_vertices: Vec<(usize, usize)> = vec![];
         for vertice in self.obj.vertices.iter() {
-            let mut x = project(self.fov, vertice[2], vertice[0]);
+            let mut x = Self::project(self.fov, vertice[2], vertice[0]);
             x *= self.resolution.0 as f32;
             x += self.resolution.0 as f32 * 0.5;
-            let mut y = project(self.fov, vertice[2], vertice[1]);
+            let mut y = Self::project(self.fov, vertice[2], vertice[1]);
             y *= self.resolution.1 as f32 * -1.0;
             y += self.resolution.1 as f32 * 0.5;
-            projected_vertices.push((x as usize, y as usize));
+            projected_vertices.push((x.round() as usize, y.round() as usize));
         }
 
         let obj = self.obj.clone();
-
         for face in obj.faces.iter() {
-            for (loop_index, vertice_index) in face.iter().enumerate() {
-                let start_index = face[0].saturating_sub(1);
-                let current_index = vertice_index.saturating_sub(1);
-                if loop_index >= face.len() - 1 {
-                    if start_index < projected_vertices.len() && current_index < projected_vertices.len() {
-                        self.draw_line(
-                            projected_vertices[start_index],
-                            projected_vertices[current_index],
-                            pixel,
-                        );
-                    }
-                } else {
-                    let next_index = face[loop_index + 1].saturating_sub(1);
-                    if current_index < projected_vertices.len() && next_index < projected_vertices.len() {
-                        self.draw_line(
-                            projected_vertices[current_index],
-                            projected_vertices[next_index],
-                            pixel,
-                        );
-                    }
+            let vertices_count = face.len();
+            for i in 0..vertices_count {
+                let start_index = face[i].saturating_sub(1);
+                let end_index = face[(i + 1) % vertices_count].saturating_sub(1);
+    
+                if start_index < projected_vertices.len() && end_index < projected_vertices.len() {
+                    self.draw_line(
+                        projected_vertices[start_index],
+                        projected_vertices[end_index],
+                        pixel,
+                    );
                 }
             }
+        }
+    }
+    pub fn print_vertices(&self) {
+        for (i, vertice) in self.obj.vertices.iter().enumerate() {
+            let mut x = Self::project(self.fov, vertice[2], vertice[0]);
+            x *= self.resolution.0 as f32;
+            x += self.resolution.0 as f32 * 0.5;
+            let mut y = Self::project(self.fov, vertice[2], vertice[1]);
+            y *= self.resolution.1 as f32 * -1.0;
+            y += self.resolution.1 as f32 * 0.5;
+            println!("{}: ({}, {})", i + 1, x.round(), y.round());
         }
     }
 }
